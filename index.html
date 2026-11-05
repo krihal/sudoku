@@ -101,13 +101,14 @@ kbd{background:var(--btn);border-radius:4px;padding:0 5px;font:inherit}
 
 <script>
 "use strict";
-// grade: hardest technique the puzzle forces (1 singles, 2 pairs/pointing, 3 triples/hidden pairs/X-Wing, 4 beyond)
+// grade: hardest technique forced (1 singles, 2 pairs/pointing, 3 triples/hidden pairs/X-Wing, 4 XY/XYZ-Wing/Swordfish, 5 beyond)
 const LEVELS = [
-  {name:"Easy",   clues:40, grade:1, sym:true},
-  {name:"Medium", clues:30, grade:1, sym:true},
-  {name:"Hard",   clues:17, grade:2, sym:false},
-  {name:"Expert", clues:17, grade:3, sym:false},
-  {name:"Evil",   clues:17, grade:4, sym:false},
+  {name:"Easy",      clues:40, grade:1, sym:true},
+  {name:"Medium",    clues:30, grade:1, sym:true},
+  {name:"Hard",      clues:17, grade:2, sym:false},
+  {name:"Expert",    clues:17, grade:3, sym:false},
+  {name:"Evil",      clues:17, grade:4, sym:false},
+  {name:"Nightmare", clues:17, grade:5, sym:false},
 ];
 const SAVE_KEY = "sudoku.v1", PREF_KEY = "sudoku.prefs.v1";
 
@@ -180,7 +181,7 @@ function grade(puz){
     if(val.every(v=>v)) return {solved:true,grade:level};
     // L1 singles
     let prog=false;
-    for(let i=0;i<81;i++) if(!val[i]){ if(cand[i]===0) return {solved:false,grade:4};
+    for(let i=0;i<81;i++) if(!val[i]){ if(cand[i]===0) return {solved:false,grade:5};
       if(pc(cand[i])===1){ place(i,31-Math.clz32(cand[i])); prog=true; } }
     if(prog) continue;
     for(const u of UNITS) for(let d=1;d<=9;d++){
@@ -241,7 +242,42 @@ function grade(puz){
       }
     }
     if(prog){ level=3; continue; }
-    return {solved:false,grade:4};
+    // L4: XY-Wing, XYZ-Wing, Swordfish
+    for(let p=0;p<81&&!prog;p++){
+      if(val[p]) continue;
+      const n=pc(cand[p]);
+      if(n!==2&&n!==3) continue;
+      const ws=PEERS[p].filter(i=>!val[i]&&pc(cand[i])===2);
+      for(let a=0;a<ws.length&&!prog;a++) for(let b=a+1;b<ws.length&&!prog;b++){
+        const A=ws[a],B=ws[b], ca=cand[A], cb=cand[B], z=ca&cb;
+        if(pc(z)!==1) continue;
+        let targets;
+        if(n===2){
+          if((cand[p]&z)||((ca|cb)&~z)!==cand[p]) continue;
+          targets=PEERS[A].filter(k=>PEERS[B].includes(k));
+        } else {
+          if((ca&~cand[p])||(cb&~cand[p])||(ca|cb)!==cand[p]) continue;
+          targets=PEERS[A].filter(k=>PEERS[B].includes(k)&&PEERS[p].includes(k));
+        }
+        for(const k of targets) if(!val[k]&&elim(k,z)) prog=true;
+      }
+    }
+    if(!prog) for(let d=1;d<=9&&!prog;d++){
+      const m=1<<d;
+      for(let t=0;t<2&&!prog;t++){
+        const lines=[];
+        for(let l=0;l<9;l++){ let cs=0,c=0; for(const i of UNITS[t*9+l]) if(!val[i]&&(cand[i]&m)){ cs|=1<<(t?ROW(i):COL(i)); c++; } if(c>=2&&c<=3) lines.push([l,cs]); }
+        for(let a=0;a<lines.length;a++) for(let b=a+1;b<lines.length;b++) for(let c=b+1;c<lines.length;c++){
+          const un=lines[a][1]|lines[b][1]|lines[c][1]; if(pc(un)!==3) continue;
+          const ls=[lines[a][0],lines[b][0],lines[c][0]];
+          for(let x=0;x<9;x++) if(un&(1<<x)) for(const k of UNITS[(1-t)*9+x]){
+            if(!ls.includes(t?COL(k):ROW(k))&&!val[k]&&elim(k,m)) prog=true;
+          }
+        }
+      }
+    }
+    if(prog){ level=4; continue; }
+    return {solved:false,grade:5};
   }
 }
 

@@ -4,11 +4,12 @@ A minimal, dependency-free Sudoku game in a single `index.html`. Works with keyb
 
 ## Features
 
-- Five difficulties: Easy, Medium, Hard, Expert, Evil. Generated puzzles always have a unique solution and are graded by a built-in logic solver:
+- Six difficulties: Easy, Medium, Hard, Expert, Evil, Nightmare. Generated puzzles always have a unique solution and are graded by a built-in logic solver:
   - Easy / Medium: singles only (Medium has fewer clues)
   - Hard: needs naked pairs or pointing/claiming
   - Expert: needs naked triples, hidden pairs or X-Wing
-  - Evil: beyond all of the above (advanced techniques or trial and error)
+  - Evil: needs XY-Wing, XYZ-Wing or Swordfish
+  - Nightmare: beyond all of the above (chains, forcing, or trial and error)
 - Two check modes (toggle with `C`):
   - **Instant check**: wrong numbers are flagged red as you place them
   - **Check at end**: nothing is flagged until the grid is full
