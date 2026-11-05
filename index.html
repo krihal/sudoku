@@ -101,11 +101,13 @@ kbd{background:var(--btn);border-radius:4px;padding:0 5px;font:inherit}
 
 <script>
 "use strict";
+// grade: hardest technique the puzzle forces (1 singles, 2 pairs/pointing, 3 triples/hidden pairs/X-Wing, 4 beyond)
 const LEVELS = [
-  {name:"Easy",   clues:40},
-  {name:"Medium", clues:33},
-  {name:"Hard",   clues:28},
-  {name:"Expert", clues:24},
+  {name:"Easy",   clues:40, grade:1, sym:true},
+  {name:"Medium", clues:30, grade:1, sym:true},
+  {name:"Hard",   clues:17, grade:2, sym:false},
+  {name:"Expert", clues:17, grade:3, sym:false},
+  {name:"Evil",   clues:17, grade:4, sym:false},
 ];
 const SAVE_KEY = "sudoku.v1", PREF_KEY = "sudoku.prefs.v1";
 
@@ -141,21 +143,119 @@ function solve(grid, limit, randomize, out){
   return count;
 }
 
-function generate(clues){
+function carve(clues, sym){
   const sol = new Array(81).fill(0);
   solve(sol.slice(), 1, true, sol);
   const puz = sol.slice();
   let left = 81;
   for(const i of shuffle([...Array(81).keys()])){
     if(left<=clues) break;
-    const j = 80-i; // 180° symmetry
-    if(!puz[i]) continue;
+    const j = sym ? 80-i : i;
+    if(!puz[i] || !puz[j]) continue;
     const a=puz[i], bb=puz[j];
     puz[i]=0; puz[j]=0;
     if(solve(puz,2,false)!==1){ puz[i]=a; puz[j]=bb; }
     else left -= (i===j?1:2);
   }
   return {puz, sol};
+}
+
+// ---------- logic grader ----------
+const UNITS=[];
+for(let r=0;r<9;r++) UNITS.push([...Array(9).keys()].map(c=>r*9+c));
+for(let c=0;c<9;c++) UNITS.push([...Array(9).keys()].map(r=>r*9+c));
+for(let b=0;b<9;b++){ const u=[]; for(let i=0;i<81;i++) if(BOX(i)===b) u.push(i); UNITS.push(u); }
+const PEERS=[...Array(81).keys()].map(i=>[...Array(81).keys()].filter(j=>j!==i&&(ROW(j)===ROW(i)||COL(j)===COL(i)||BOX(j)===BOX(i))));
+const pc=m=>{let n=0;for(;m;m&=m-1)n++;return n;};
+
+// Returns {solved, grade}: grade = hardest technique level needed (1..3), 4 if stuck.
+function grade(puz){
+  const val=puz.slice(), cand=new Array(81).fill(0);
+  let level=1;
+  const place=(i,d)=>{ val[i]=d; cand[i]=0; for(const p of PEERS[i]) cand[p]&=~(1<<d); };
+  for(let i=0;i<81;i++) if(!val[i]) cand[i]=0x3fe;
+  for(let i=0;i<81;i++) if(puz[i]){ const d=puz[i]; val[i]=0; cand[i]=0x3fe; place(i,d); }
+  const elim=(i,m)=>{ if(cand[i]&m){ cand[i]&=~m; return true; } return false; };
+  for(;;){
+    if(val.every(v=>v)) return {solved:true,grade:level};
+    // L1 singles
+    let prog=false;
+    for(let i=0;i<81;i++) if(!val[i]){ if(cand[i]===0) return {solved:false,grade:4};
+      if(pc(cand[i])===1){ place(i,31-Math.clz32(cand[i])); prog=true; } }
+    if(prog) continue;
+    for(const u of UNITS) for(let d=1;d<=9;d++){
+      const m=1<<d; let n=0,at=-1;
+      for(const i of u){ if(val[i]===d){n=2;break;} if(!val[i]&&(cand[i]&m)){n++;at=i;} }
+      if(n===1){ place(at,d); prog=true; }
+    }
+    if(prog) continue;
+    // L2: naked pairs, pointing/claiming
+    for(const u of UNITS){
+      for(let a=0;a<9;a++){ const i=u[a]; if(val[i]||pc(cand[i])!==2) continue;
+        for(let b=a+1;b<9;b++){ const j=u[b];
+          if(cand[j]===cand[i]) for(const k of u) if(k!==i&&k!==j&&elim(k,cand[i])) prog=true; } }
+    }
+    for(let d=1;d<=9&&!prog;d++){
+      const m=1<<d;
+      for(let b=0;b<9;b++){ // pointing
+        const cs=UNITS[18+b].filter(i=>!val[i]&&(cand[i]&m)); if(cs.length<2) continue;
+        if(cs.every(i=>ROW(i)===ROW(cs[0]))) for(const k of UNITS[ROW(cs[0])]) if(BOX(k)!==b&&!val[k]&&elim(k,m)) prog=true;
+        if(cs.every(i=>COL(i)===COL(cs[0]))) for(const k of UNITS[9+COL(cs[0])]) if(BOX(k)!==b&&!val[k]&&elim(k,m)) prog=true;
+      }
+      for(let l=0;l<18;l++){ // claiming
+        const cs=UNITS[l].filter(i=>!val[i]&&(cand[i]&m)); if(cs.length<2) continue;
+        if(cs.every(i=>BOX(i)===BOX(cs[0]))) for(const k of UNITS[18+BOX(cs[0])]) if(!UNITS[l].includes(k)&&!val[k]&&elim(k,m)) prog=true;
+      }
+    }
+    if(prog){ level=Math.max(level,2); continue; }
+    // L3: naked triples, hidden pairs, X-Wing
+    for(const u of UNITS){
+      const free=u.filter(i=>!val[i]);
+      for(let a=0;a<free.length;a++) for(let b=a+1;b<free.length;b++) for(let c=b+1;c<free.length;c++){
+        const A=free[a],B=free[b],C=free[c], un=cand[A]|cand[B]|cand[C];
+        if(pc(un)!==3||!cand[A]||!cand[B]||!cand[C]) continue;
+        for(const k of free) if(k!==A&&k!==B&&k!==C&&elim(k,un)) prog=true;
+      }
+      for(let d1=1;d1<=9;d1++) for(let d2=d1+1;d2<=9;d2++){
+        const m1=1<<d1,m2=1<<d2;
+        const w1=free.filter(i=>cand[i]&m1), w2=free.filter(i=>cand[i]&m2);
+        if(w1.length!==2||w2.length!==2||w1[0]!==w2[0]||w1[1]!==w2[1]) continue;
+        for(const i of w1) if(elim(i,~(m1|m2)&0x3fe)) prog=true;
+      }
+    }
+    if(prog){ level=3; continue; }
+    // L3: X-Wing
+    for(let d=1;d<=9&&!prog;d++){
+      const m=1<<d;
+      for(let t=0;t<2;t++){ // t=0 rows, t=1 cols
+        const lines=[];
+        for(let l=0;l<9;l++){ const u=UNITS[t*9+l]; const cs=u.filter(i=>!val[i]&&(cand[i]&m)).map(i=>t?ROW(i):COL(i)); if(cs.length===2) lines.push([l,cs]); }
+        for(let a=0;a<lines.length;a++) for(let b=a+1;b<lines.length;b++){
+          const [la,ca]=lines[a],[lb,cb]=lines[b];
+          if(ca[0]!==cb[0]||ca[1]!==cb[1]) continue;
+          for(const c of ca) for(const k of UNITS[(1-t)*9+c]){
+            const line=t?COL(k):ROW(k);
+            if(line!==la&&line!==lb&&!val[k]&&elim(k,m)) prog=true;
+          }
+        }
+      }
+    }
+    if(prog){ level=3; continue; }
+    return {solved:false,grade:4};
+  }
+}
+
+// Retry until puzzle grade matches; fall back to closest grade found.
+function generate(lv){
+  const spec=LEVELS[lv], t0=Date.now();
+  let best=null, bestD=99;
+  while(Date.now()-t0<2500){
+    const p=carve(spec.clues, spec.sym), gr=grade(p.puz).grade;
+    const d=Math.abs(gr-spec.grade) + (gr<spec.grade ? 0.5 : 0);
+    if(gr===spec.grade || (spec.grade===1 && gr===1)) return p;
+    if(d<bestD){ best=p; bestD=d; }
+  }
+  return best;
 }
 
 // ---------- state ----------
@@ -199,7 +299,7 @@ function newGame(){
   confirmNew=0; setStatus("Generating…");
   $("win").classList.remove("show");
   setTimeout(()=>{
-    const {puz,sol}=generate(LEVELS[prefs.level].clues);
+    const {puz,sol}=generate(prefs.level);
     G={level:prefs.level, given:puz, val:puz.slice(), sol, hint:new Array(81).fill(false),
        time:0, hints:0, moves:0, won:false};
     undoS=[]; redoS=[]; sel=puz.indexOf(0);
