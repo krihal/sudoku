@@ -79,7 +79,7 @@ kbd{background:var(--btn);border-radius:4px;padding:0 5px;font:inherit}
     <div id="timer" aria-live="off">0:00</div>
   </div>
   <div class="bar2">
-    <button id="mode" aria-pressed="true" title="Toggle instant check (C)">Instant check: on</button>
+    <button id="mode" aria-pressed="true" title="Cycle check mode (C)">Check: instant</button>
     <button id="new" title="New game (N)">New game</button>
   </div>
   <div id="grid" role="grid" aria-label="Sudoku board"></div>
@@ -94,7 +94,7 @@ kbd{background:var(--btn);border-radius:4px;padding:0 5px;font:inherit}
   <div id="help">
     <kbd>←↑↓→</kbd>/<kbd>WASD</kbd>/<kbd>HJKL</kbd> move · <kbd>1-9</kbd> place · <kbd>0</kbd>/<kbd>⌫</kbd> erase ·
     <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> undo/redo<br>
-    <kbd>?</kbd>/<kbd>Shift+H</kbd> hint · <kbd>C</kbd> toggle check mode · <kbd>Shift+D</kbd> difficulty · <kbd>N</kbd> new game
+    <kbd>?</kbd>/<kbd>Shift+H</kbd> hint · <kbd>C</kbd> cycle check mode · <kbd>Shift+D</kbd> difficulty · <kbd>N</kbd> new game
   </div>
 </main>
 <div id="win"><div><h2>Solved!</h2><p id="winmsg"></p><button id="again">Play again</button></div></div>
@@ -297,8 +297,11 @@ function generate(lv){
 // ---------- state ----------
 let G = null; // {level, given[], val[], sol[], hint[], time, hints, moves, won}
 let sel = 40, undoS = [], redoS = [], timerId = null, lastTick = 0, confirmNew = 0;
-let prefs = {level:1, instant:true};
+let prefs = {level:1, check:"instant"};
 try{ Object.assign(prefs, JSON.parse(localStorage.getItem(PREF_KEY)||"{}")); }catch(e){}
+const CHECKS = ["instant","unit","off"];
+if(!CHECKS.includes(prefs.check)) prefs.check = prefs.instant===false ? "off" : "instant";
+delete prefs.instant;
 
 const $ = id => document.getElementById(id);
 const gridEl=$("grid"), statusEl=$("status");
@@ -426,6 +429,13 @@ function render(){
   if(!G) return;
   const sv=G.val[sel], sr=ROW(sel), sc=COL(sel), sb=BOX(sel);
   const counts=new Array(10).fill(0);
+  let doneUnit=null;
+  if(prefs.check==="unit"){
+    // a row/col/box counts as filled when all 9 cells have a value
+    const rows=new Array(9).fill(0), cols=new Array(9).fill(0), boxes=new Array(9).fill(0);
+    for(let i=0;i<81;i++) if(G.val[i]){ rows[ROW(i)]++; cols[COL(i)]++; boxes[BOX(i)]++; }
+    doneUnit=i=>rows[ROW(i)]===9||cols[COL(i)]===9||boxes[BOX(i)]===9;
+  }
   for(let i=0;i<81;i++){
     const v=G.val[i]; counts[v]++;
     const el=cells[i];
@@ -434,7 +444,8 @@ function render(){
     else if(sv && v===sv) cls+=" same";
     else if(ROW(i)===sr||COL(i)===sc||BOX(i)===sb) cls+=" peer";
     if(G.given[i]) cls+=" given"; else if(G.hint[i]) cls+=" hint"; else if(v) cls+=" user";
-    const showErr = (prefs.instant || G.reveal) && v && !G.given[i] && !G.hint[i] && v!==G.sol[i];
+    const checked = prefs.check==="instant" || G.reveal || (doneUnit && doneUnit(i));
+    const showErr = checked && v && !G.given[i] && !G.hint[i] && v!==G.sol[i];
     if(showErr) cls+=" err";
     el.className=cls;
     el.textContent=v||"";
@@ -444,8 +455,8 @@ function render(){
     b.classList.toggle("done",left<=0);
     b.querySelector("small").textContent=left>0?left:"";
   });
-  const m=$("mode"); m.setAttribute("aria-pressed",prefs.instant);
-  m.textContent="Instant check: "+(prefs.instant?"on":"off");
+  const m=$("mode"); m.setAttribute("aria-pressed",prefs.check!=="off");
+  m.textContent="Check: "+CHECK_LABEL[prefs.check];
   $("undo").disabled=!undoS.length; $("redo").disabled=!redoS.length;
   $("timer").textContent=fmt(G.time);
   $("undo").style.opacity=undoS.length?1:.4; $("redo").style.opacity=redoS.length?1:.4;
@@ -457,9 +468,15 @@ function renderLevels(){
 
 // ---------- input ----------
 $("mode").addEventListener("click",toggleMode);
+const CHECK_LABEL = {instant:"instant", unit:"row/col/box", off:"off"};
+const CHECK_MSG = {
+  instant:"Wrong numbers are flagged as you place them.",
+  unit:"Wrong numbers flagged once their row, column or box is full.",
+  off:"Numbers checked only when grid is full."
+};
 function toggleMode(){
-  prefs.instant=!prefs.instant; savePrefs(); render();
-  setStatus(prefs.instant?"Wrong numbers are flagged as you place them.":"Numbers checked only when grid is full.");
+  prefs.check=CHECKS[(CHECKS.indexOf(prefs.check)+1)%CHECKS.length]; savePrefs(); render();
+  setStatus(CHECK_MSG[prefs.check]);
 }
 $("new").addEventListener("click",requestNew);
 $("undo").addEventListener("click",undo);
